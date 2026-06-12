@@ -1,125 +1,105 @@
 import pandas as pd
 
-# =========================
+
+# =========================================================
 # LOAD FILE
-# =========================
-import pandas as pd
-
+# =========================================================
 def load_project_file(uploaded_file):
+
+    file_name = uploaded_file.name.lower()
+
+    # ✅ Try CSV first
     try:
-        file_name = uploaded_file.name.lower()
-
-        if file_name.endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
-
-        elif file_name.endswith(".xlsx"):
-            df = pd.read_excel(uploaded_file, engine="openpyxl")
-
-        else:
-            raise ValueError("Unsupported file format")
-
+        df = pd.read_csv(uploaded_file)
         return df
+    except:
+        pass
 
-    except Exception as e:
-        raise ValueError(f"""
-❌ Uploaded file is not a valid CSV or Excel file.
+    uploaded_file.seek(0)
 
-👉 Please upload:
-- Proper .csv OR
-- Proper .xlsx (not renamed file)
+    # ✅ Try Excel
+    try:
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
+        return df
+    except:
+        pass
 
-Error: {str(e)}
-""")
-    
+    uploaded_file.seek(0)
 
-import streamlit as st
-
-# =========================
-# FILE UPLOAD (ADD HERE ✅)
-# =========================
-uploaded_file = st.file_uploader(
-    "Upload Project File",
-    type=["csv", "xlsx"]
-)
-
-# Stop if no file
-if uploaded_file is None:
-    st.warning("Please upload a file")
-    st.stop()
+    raise ValueError("❌ Invalid file. Upload proper CSV or Excel")
 
 
-
-# =========================
-# CLEAN + MAP DATA
-# =========================
+# =========================================================
+# MAIN FUNCTION
+# =========================================================
 def prepare_project_library_data(uploaded_file, inflation_mode="cpi"):
 
     df = load_project_file(uploaded_file)
 
-    # ✅ BASIC CLEANING
+    # ✅ Clean column names
     df.columns = [c.strip() for c in df.columns]
 
-    # =========================
-    # COLUMN MAPPING
-    # =========================
-    if "Project_ID" in df.columns:
-        df["Project ID"] = df["Project_ID"]
-    elif "Oracle Projects (OP) Number" in df.columns:
-        df["Project ID"] = df["Oracle Projects (OP) Number"]
-    else:
-        df["Project ID"] = df.index
+    # ====================================================
+    # ✅ CONVERT NUMERIC
+    # ====================================================
+    df["Total Cost"] = pd.to_numeric(df["Total Cost"], errors="coerce")
 
-    df["Project Name"] = df.get("Project Name", "")
-    df["Project ID Display"] = df["Project ID"].astype(str) + " - " + df["Project Name"].astype(str)
+    # ====================================================
+    # ✅ AGGREGATE PROJECT LEVEL (CRITICAL FIX ✅)
+    # ====================================================
+    project_df = df.groupby(
+        [
+            "Project_ID",
+            "Upload Index",   # ✅ version control
+            "Project Name",
+            "Oracle Projects (OP) Number",
+            "Base Date"
+        ],
+        as_index=False
+    ).agg({
+        "Total Cost": "sum"
+    })
 
-    df["Region"] = df.get("Region", "")
-    df["Basis of Costs"] = df.get("Basis of Costs", "")
-    df["Scheme Type"] = df.get("Scheme Type", "")
-    df["Funding Category"] = df.get("Funding Type", "")
+    # ====================================================
+    # ✅ PROJECT ID + DISPLAY
+    # ====================================================
+    project_df["Project ID"] = project_df["Project_ID"]
 
-    # =========================
-    # BASE DATE
-    # =========================
-    if "Base Date" in df.columns:
-        df["Base Date Parsed"] = pd.to_datetime(df["Base Date"], errors="coerce")
-    else:
-        df["Base Date Parsed"] = pd.NaT
+    project_df["Project ID Display"] = (
+        project_df["Project_ID"].astype(str)
+        + " | Upload: " + project_df["Upload Index"].astype(str)
+        + " - " + project_df["Project Name"]
+    )
 
-    df["Base Date"] = df.get("Base Date", "")
+    # ====================================================
+    # ✅ COST LOGIC
+    # ====================================================
+    project_df["Project Cost Numeric"] = project_df["Total Cost"]
 
-    # =========================
-    # PITG %
-    # =========================
-    if "PITG%" in df.columns:
-        df["PITG Numeric"] = pd.to_numeric(df["PITG%"], errors="coerce")
-    else:
-        df["PITG Numeric"] = None
-
-    df["PITG %"] = df["PITG Numeric"].astype(str) + "%"
-
-    # =========================
-    # PROJECT COST
-    # =========================
-    if "AFC" in df.columns:
-        df["Project Cost Numeric"] = pd.to_numeric(df["AFC"], errors="coerce")
-    else:
-        df["Project Cost Numeric"] = 0
-
-    df["Project Cost"] = df["Project Cost Numeric"].apply(
+    project_df["Project Cost"] = project_df["Project Cost Numeric"].apply(
         lambda x: f"£{int(x):,}" if pd.notna(x) else ""
     )
 
-    # =========================
-    # INFLATED COST
-    # =========================
-    if "Inflation" in df.columns and inflation_mode == "cpi":
-        df["Inflation"] = pd.to_numeric(df["Inflation"], errors="coerce")
-        df["Inflated Project Cost Numeric"] = df["Project Cost Numeric"] * df["Inflation"]
-    else:
-        df["Inflated Project Cost Numeric"] = df["Project Cost Numeric"]
+    # ✅ For now inflation same as cost
+    project_df["Inflated Project Cost Numeric"] = project_df["Project Cost Numeric"]
 
-    df["Inflated Project Cost"] = df["Inflated Project Cost Numeric"].apply(
-        lambda x: f"£{int(x):,}" if pd.notna(x) else ""
+    project_df["Inflated Project Cost"] = project_df["Project Cost"]
+
+    # ====================================================
+    # ✅ BASE DATE
+    # ====================================================
+    project_df["Base Date Parsed"] = pd.to_datetime(
+        project_df["Base Date"], errors="coerce"
     )
 
-    return df
+    project_df["year"] = project_df["Base Date Parsed"].dt.year
+
+    # ====================================================
+    # ✅ DEFAULT FIELDS (for UI compatibility)
+    # ====================================================
+    project_df["Region"] = "Unknown"
+    project_df["Basis of Costs"] = "Estimate"
+    project_df["Scheme Type"] = "Default"
+    project_df["PITG %"] = "0%"
+
+    return project_df
