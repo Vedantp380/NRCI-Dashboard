@@ -1,7 +1,13 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+
+# ======================================================
+# 🔐 AUTHENTICATION CHECK
+# ======================================================
+if not st.session_state.get("authenticated", False):
+    st.warning("🔐 Please login from main page")
+    st.stop()
 
 # ======================================================
 # PAGE CONFIG
@@ -17,16 +23,21 @@ DATA_PATH = r"C:\Users\pandeyv1581\Downloads\sdg_index_2000-2022.csv"
 @st.cache_data
 def load_data():
     df = pd.read_csv(DATA_PATH)
-
-    # normalize columns
     df.columns = df.columns.str.lower().str.strip()
-
     return df
 
 df = load_data()
 
 # ======================================================
-# VALIDATION
+# ✅ ROLE-BASED ACCESS (IMPORTANT)
+# ======================================================
+role = st.session_state.get("role", "global")
+
+if role == "india":
+    df = df[df["country"] == "India"]
+
+# ======================================================
+# COLUMN VALIDATION
 # ======================================================
 required_cols = ["country", "country_code", "year"]
 
@@ -35,13 +46,12 @@ for col in required_cols:
         st.error(f"Missing required column: {col}")
         st.stop()
 
-# dynamic score columns
 score_cols = [col for col in df.columns if "score" in col]
 
 # ======================================================
 # SIDEBAR FILTERS
 # ======================================================
-st.sidebar.header("Filters")
+st.sidebar.header("📊 Filters")
 
 year = st.sidebar.selectbox(
     "Select Year",
@@ -57,9 +67,8 @@ filtered_df = df[df["year"] == year].copy()
 filtered_df = filtered_df.dropna(subset=[goal])
 
 # ======================================================
-# ================= INSIGHT ENGINE ======================
+# 🧠 INSIGHT ENGINE
 # ======================================================
-
 def generate_insights(df, goal, year):
     insights = []
 
@@ -67,18 +76,18 @@ def generate_insights(df, goal, year):
     max_country = df.loc[df[goal].idxmax(), "country"]
     min_country = df.loc[df[goal].idxmin(), "country"]
 
+    gap = df[goal].max() - df[goal].min()
+
     insights.append(f"Global average **{goal}** is **{avg_score:.2f}** in {year}.")
     insights.append(f"Top performer: **{max_country}**, lowest: **{min_country}**.")
-
-    gap = df[goal].max() - df[goal].min()
-    insights.append(f"Performance gap is **{gap:.2f} points**, indicating inequality.")
+    insights.append(f"The global performance gap is **{gap:.2f} points**, highlighting inequality.")
 
     if avg_score > 75:
-        insights.append("Global performance is strong.")
+        insights.append("Overall global performance is strong.")
     elif avg_score > 60:
-        insights.append("Moderate progress with improvement potential.")
+        insights.append("Moderate progress with improvement opportunities.")
     else:
-        insights.append("Global performance is uneven and needs attention.")
+        insights.append("Global performance is uneven.")
 
     return insights
 
@@ -87,16 +96,15 @@ def smart_insight(df, goal):
     avg = df[goal].mean()
 
     if avg > 75:
-        return "✅ Most countries are performing strongly on this goal."
+        return "✅ Strong global performance"
     elif avg > 60:
-        return "⚠️ Moderate performance — some countries lag behind."
+        return "⚠️ Moderate performance (mixed progress)"
     else:
-        return "❌ Significant challenges exist globally."
+        return "❌ Weak global performance"
 
 # ======================================================
-# ================= KPI EXECUTIVE =======================
+# 📊 KPI SECTION
 # ======================================================
-
 st.subheader("📊 Executive Summary")
 
 col1, col2, col3 = st.columns(3)
@@ -116,9 +124,8 @@ st.markdown("### 🌍 Insight Engine")
 st.warning(smart_insight(filtered_df, goal))
 
 # ======================================================
-# ================= MAP ================================
+# 🌍 MAP
 # ======================================================
-
 st.subheader("🌍 Global Map")
 
 fig_map = px.choropleth(
@@ -133,10 +140,9 @@ fig_map = px.choropleth(
 st.plotly_chart(fig_map, use_container_width=True)
 
 # ======================================================
-# ================= STORYTELLING =======================
+# 📖 STORYTELLING
 # ======================================================
-
-st.subheader("📖 Global Storytelling")
+st.subheader("📖 Global Insights")
 
 insights = generate_insights(filtered_df, goal, year)
 
@@ -144,9 +150,8 @@ for ins in insights:
     st.write(f"👉 {ins}")
 
 # ======================================================
-# ================= TOP / BOTTOM =======================
+# 🏆 TOP / BOTTOM
 # ======================================================
-
 st.subheader("🏆 Performance Ranking")
 
 col1, col2 = st.columns(2)
@@ -163,9 +168,8 @@ with col2:
     st.dataframe(bottom5[["country", goal]])
 
 # ======================================================
-# ================= TREND ==============================
+# 📈 TREND ANALYSIS
 # ======================================================
-
 st.subheader("📈 Country Trend")
 
 country = st.selectbox(
@@ -179,16 +183,15 @@ fig_trend = px.line(
     country_df,
     x="year",
     y=goal,
-    markers=True,
-    title=f"{country} - {goal}"
+    title=f"{country} - {goal}",
+    markers=True
 )
 
 st.plotly_chart(fig_trend, use_container_width=True)
 
 # ======================================================
-# ================= IMPROVEMENT ========================
+# 🚀 IMPROVEMENT ANALYSIS
 # ======================================================
-
 st.subheader("🚀 Improvement Analysis")
 
 df_start = df[df["year"] == df["year"].min()]
@@ -213,10 +216,9 @@ if not top_improvers.empty:
     )
 
 # ======================================================
-# ================= HEATMAP ============================
+# 🌡️ HEATMAP
 # ======================================================
-
-st.subheader("🌡️ Heatmap (Country vs Year)")
+st.subheader("🌡️ Heatmap")
 
 pivot_df = df.pivot_table(
     index="country",
